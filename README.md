@@ -8,6 +8,8 @@ relying on it.
 
 Team: Falak Raheja, Angelina Chen, Amy Wang.
 
+Full proposal: [docs/proposal.md](docs/proposal.md).
+
 ## Layout
 
 ```
