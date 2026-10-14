@@ -1,0 +1,38 @@
+# Tiny config on the synthetic agreement grammar: runs in about a minute on a laptop.
+# Use it to check the whole pipeline before spending time on WikiText.
+name: synthetic_debug
+seed: 0
+
+data:
+  corpus: synthetic
+  dir: data/synthetic
+  vocab_size: 1024
+  block_size: 64
+  n_synthetic_sentences: 60000
+
+model:
+  n_layer: 2
+  n_head: 4
+  d_model: 64
+  dropout: 0.0
+
+train:
+  batch_size: 64
+  max_steps: 1500
+  lr: 0.003
+  min_lr: 0.0003
+  warmup_steps: 100
+  weight_decay: 0.1
+  grad_clip: 1.0
+  eval_batches: 10
+  device: auto
+
+checkpoints:
+  dense_until: 200
+  dense_every: 10
+  n_log: 25
+  late_every: 500
+
+eval:
+  n_agreement_pairs: 500
+  out_dir: runs

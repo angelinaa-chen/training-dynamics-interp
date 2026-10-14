@@ -1,0 +1,37 @@
+# Base config: ~10M-parameter decoder-only transformer on WikiText-103.
+name: base
+seed: 0
+
+data:
+  corpus: wikitext103        # wikitext103 | wikitext2 | synthetic
+  dir: data/wikitext103
+  vocab_size: 8192
+  block_size: 256
+
+model:
+  n_layer: 6
+  n_head: 8
+  d_model: 256
+  dropout: 0.0
+
+train:
+  batch_size: 64
+  max_steps: 20000
+  lr: 0.001
+  min_lr: 0.0001
+  warmup_steps: 500
+  weight_decay: 0.1
+  grad_clip: 1.0
+  eval_batches: 20
+  device: auto               # auto | cpu | mps | cuda
+
+checkpoints:
+  # Dense early, log-spaced through the middle, linear late.
+  dense_until: 500
+  dense_every: 25
+  n_log: 40
+  late_every: 2000
+
+eval:
+  n_agreement_pairs: 2000
+  out_dir: runs
