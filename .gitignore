@@ -12,3 +12,4 @@ runs/
 *.pt
 *.bin
 wandb/
+analysis_out/

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from collections import deque
 from pathlib import Path
 
 import numpy as np
 import torch
 
-from .config import CheckpointConfig, Config, ModelConfig
+from .config import CheckpointConfig, Config
 from .model import GPT
 
 
@@ -45,3 +46,30 @@ def load_checkpoint(path: str | Path, device: str | torch.device = "cpu") -> tup
     model = GPT(cfg.model, blob["vocab_size"], cfg.data.block_size)
     model.load_state_dict(blob["model"])
     return model.to(device).eval(), cfg, blob["step"]
+
+
+class LossTrigger:
+    """Fires when the smoothed training loss changed by more than `trigger_rel_change` (relative)
+    over the last `trigger_window` steps, so checkpoints land on sharp transitions such as the
+    onset of a new capability. Call `update` once per step with the loss EMA."""
+
+    def __init__(self, c: CheckpointConfig, start_step: int):
+        self.c, self.start = c, start_step
+        self.hist: deque[float] = deque(maxlen=c.trigger_window + 1)
+        self.last_fired = -10**9
+        self.n_fired = 0
+
+    def update(self, step: int, ema: float) -> bool:
+        self.hist.append(ema)
+        if (
+            step < self.start
+            or len(self.hist) <= self.c.trigger_window
+            or self.n_fired >= self.c.trigger_max
+            or step - self.last_fired < self.c.trigger_min_gap
+        ):
+            return False
+        old = self.hist[0]
+        if abs(ema - old) / max(abs(old), 1e-8) > self.c.trigger_rel_change:
+            self.last_fired, self.n_fired = step, self.n_fired + 1
+            return True
+        return False

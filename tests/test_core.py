@@ -75,3 +75,17 @@ def test_attractor_conditions():
 def test_lexicon_split_is_disjoint():
     lex = synthetic.make_lexicon()
     assert not set(lex.train) & set(lex.test)
+
+
+def test_loss_trigger_fires_on_sharp_drop_only():
+    from tdi.checkpoints import LossTrigger
+
+    c = CheckpointConfig(dense_until=0, trigger_window=5, trigger_rel_change=0.05, trigger_min_gap=3)
+    t = LossTrigger(c, start_step=0)
+    flat = [t.update(i, 2.0) for i in range(30)]
+    assert not any(flat)
+    drops = [t.update(30 + i, 2.0 - 0.1 * i) for i in range(10)]
+    assert any(drops)
+    # min_gap respected: never two firings within 3 steps
+    fired = [i for i, f in enumerate(drops) if f]
+    assert all(b - a >= 3 for a, b in zip(fired, fired[1:]))

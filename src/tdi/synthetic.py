@@ -11,7 +11,7 @@ number of the subject. Attractor nouns between subject and verb can match or mis
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 # (singular, plural)
 NOUNS: list[tuple[str, str]] = [
@@ -48,6 +48,12 @@ ADVERBS = ["often", "never", "always", "still", "also"]
 CONDITIONS = ["simple", "adverb", "pp_match", "pp_mismatch", "pp2_mismatch", "rel_mismatch"]
 
 
+NOUN_INDEX = {n: i for i, n in enumerate(NOUNS)}
+
+POS_OF_ROLE = {"DET": "DET", "SUBJ": "NOUN", "ATTR": "NOUN", "ADV": "ADV", "PREP": "PREP",
+               "REL": "REL", "RELV": "VERB"}
+
+
 @dataclass
 class Lexicon:
     """Nouns split into train and held-out sets (held-out nouns are never in the synthetic corpus)."""
@@ -69,7 +75,10 @@ def make_lexicon(held_out_frac: float = 0.2, seed: int = 0) -> Lexicon:
 
 @dataclass
 class Example:
-    prefix: str  # text before the verb, e.g. "The key near the cabinets"
+    words: list[str]  # prefix words, e.g. ["The", "key", "near", "the", "cabinets"]
+    roles: list[str]  # per-word role: DET, SUBJ, ADV, PREP, ATTR, REL, RELV
+    lexemes: list[int | None]  # per-word index into NOUNS for SUBJ/ATTR words, else None
+    verb_idx: int  # index into VERBS
     correct: str  # correct verb form, e.g. "is"
     wrong: str  # incorrect verb form, e.g. "are"
     subject_number: str  # "sg" | "pl"
@@ -79,8 +88,32 @@ class Example:
     distance: int  # number of tokens (words) between subject and verb
 
     @property
+    def prefix(self) -> str:
+        return " ".join(self.words)
+
+    @property
     def text(self) -> str:
         return f"{self.prefix} {self.correct} ."
+
+    @property
+    def subject_lexeme(self) -> int:
+        return self.lexemes[1]  # type: ignore[return-value]
+
+    @property
+    def attractor_positions(self) -> list[int]:
+        return [i for i, r in enumerate(self.roles) if r == "ATTR"]
+
+    def flipped(self) -> "Example":
+        """Counterfactual with the subject's number flipped (everything else identical)."""
+        num = "pl" if self.subject_number == "sg" else "sg"
+        words = self.words[:]
+        words[1] = _form(NOUNS[self.subject_lexeme], num)
+        verb = VERBS[self.verb_idx]
+        correct, wrong = (verb[0], verb[1]) if num == "sg" else (verb[1], verb[0])
+        return replace(
+            self, words=words, correct=correct, wrong=wrong, subject_number=num,
+            subject=words[1],
+        )
 
 
 def _form(noun: tuple[str, str], number: str) -> str:
@@ -95,40 +128,50 @@ def sample(
     subj = rng.choice(pool)
     snum = rng.choice(["sg", "pl"])
     other = "pl" if snum == "sg" else "sg"
-    verb = rng.choice(VERBS)
+    verb_idx = rng.randrange(len(VERBS))
+    verb = VERBS[verb_idx]
 
-    def attractor() -> tuple[str, str]:
-        return rng.choice([x for x in pool if x is not subj])
+    words: list[str] = ["The", _form(subj, snum)]
+    roles: list[str] = ["DET", "SUBJ"]
+    lexemes: list[int | None] = [None, NOUN_INDEX[subj]]
 
-    parts = ["The", _form(subj, snum)]
+    def add(word: str, role: str, lexeme: int | None = None) -> None:
+        words.append(word)
+        roles.append(role)
+        lexemes.append(lexeme)
+
+    def add_attractor(num: str) -> None:
+        n = rng.choice([x for x in pool if x is not subj])
+        add("the", "DET")
+        add(_form(n, num), "ATTR", NOUN_INDEX[n])
+
     anum: str | None = None
     if condition == "simple":
         pass
     elif condition == "adverb":
-        parts.append(rng.choice(ADVERBS))
+        add(rng.choice(ADVERBS), "ADV")
     elif condition in ("pp_match", "pp_mismatch"):
         anum = snum if condition == "pp_match" else other
-        parts += [rng.choice(PREPOSITIONS), "the", _form(attractor(), anum)]
+        add(rng.choice(PREPOSITIONS), "PREP")
+        add_attractor(anum)
     elif condition == "pp2_mismatch":
         anum = other
-        parts += [rng.choice(PREPOSITIONS), "the", _form(attractor(), anum)]
-        parts += [rng.choice(PREPOSITIONS), "the", _form(attractor(), anum)]
+        for _ in range(2):
+            add(rng.choice(PREPOSITIONS), "PREP")
+            add_attractor(anum)
     elif condition == "rel_mismatch":
         anum = other
-        parts += ["that", "the", _form(attractor(), anum), rng.choice(RELATIVE_VERBS)]
+        add("that", "REL")
+        add_attractor(anum)
+        add(rng.choice(RELATIVE_VERBS), "RELV")
     else:
         raise ValueError(f"unknown condition {condition!r}")
 
     correct, wrong = (verb[0], verb[1]) if snum == "sg" else (verb[1], verb[0])
     return Example(
-        prefix=" ".join(parts),
-        correct=correct,
-        wrong=wrong,
-        subject_number=snum,
-        attractor_number=anum,
-        condition=condition,
-        subject=parts[1],
-        distance=len(parts) - 2,
+        words=words, roles=roles, lexemes=lexemes, verb_idx=verb_idx,
+        correct=correct, wrong=wrong, subject_number=snum, attractor_number=anum,
+        condition=condition, subject=words[1], distance=len(words) - 2,
     )
 
 

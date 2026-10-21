@@ -42,6 +42,16 @@ class CheckpointConfig:
     dense_every: int = 25
     n_log: int = 40
     late_every: int = 2000
+    # Extra checkpoints when the smoothed training loss moves sharply (after dense_until).
+    trigger_window: int = 20       # compare the loss EMA now with the EMA this many steps ago
+    trigger_rel_change: float = 0.01
+    trigger_min_gap: int = 10
+    trigger_max: int = 200
+    trigger_start: int = 500       # ignore the loss while it settles after the dense phase
+    # Rolling buffer of recent weights; a trigger also saves these, so checkpoints cover the
+    # steps just before a sharp change, not only the steps after it.
+    buffer_every: int = 10
+    buffer_len: int = 12
 
 
 @dataclass

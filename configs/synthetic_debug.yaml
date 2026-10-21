@@ -32,6 +32,7 @@ checkpoints:
   dense_every: 10
   n_log: 25
   late_every: 500
+  trigger_start: 600
 
 eval:
   n_agreement_pairs: 500

@@ -6,6 +6,7 @@ one JSON line of metrics per checkpoint to <run_dir>/metrics.jsonl.
 from __future__ import annotations
 
 import argparse
+import collections
 import json
 import math
 import time
@@ -15,7 +16,7 @@ import torch
 import yaml
 
 from . import synthetic
-from .checkpoints import checkpoint_steps, save_checkpoint
+from .checkpoints import LossTrigger, checkpoint_steps, save_checkpoint
 from .config import Config, load_config
 from .data import TokenData, load_tokenizer
 from .evals.agreement import encode_pairs, logit_diffs, summarize
@@ -94,12 +95,14 @@ def run(cfg: Config) -> None:
     metrics_path.write_text("")
     ckpt_steps = set(checkpoint_steps(cfg.checkpoints, cfg.train.max_steps))
 
-    def checkpoint(step: int, train_loss: float) -> None:
+    def checkpoint(step: int, train_loss: float, triggered: bool = False) -> None:
+        saved.add(step)
         save_checkpoint(run_dir, model, step, cfg)
         row = {
             "step": step,
             "tokens": step * cfg.train.batch_size * cfg.data.block_size,
             "train_loss": train_loss,
+            "triggered": triggered,
             "val_loss": val_loss(model, data, cfg, device),
         }
         row["val_ppl"] = math.exp(row["val_loss"])
@@ -112,6 +115,10 @@ def run(cfg: Config) -> None:
         )
 
     model.train()
+    cc = cfg.checkpoints
+    trigger = LossTrigger(cc, start_step=cc.trigger_start)
+    buffer: collections.deque = collections.deque(maxlen=cc.buffer_len)
+    saved = set()
     ema, t0 = float("nan"), time.time()
     if 0 in ckpt_steps:
         checkpoint(0, float("nan"))
@@ -125,8 +132,20 @@ def run(cfg: Config) -> None:
         torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.train.grad_clip)
         opt.step()
         ema = loss.item() if math.isnan(ema) else 0.98 * ema + 0.02 * loss.item()
+        fired = trigger.update(step, ema)
         if step in ckpt_steps:
             checkpoint(step, ema)
+        elif fired:
+            checkpoint(step, ema, triggered=True)
+            current = {k: v.detach().clone() for k, v in model.state_dict().items()}
+            for s_old, state in list(buffer):  # also save the steps leading up to the change
+                if s_old not in saved:
+                    model.load_state_dict(state)
+                    checkpoint(s_old, float("nan"), triggered=True)
+            model.load_state_dict(current)
+            buffer.clear()
+        if step % cc.buffer_every == 0 and step not in saved:
+            buffer.append((step, {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}))
     print(f"done in {time.time() - t0:.0f}s -> {run_dir}")
 
 
