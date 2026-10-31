@@ -1,4 +1,4 @@
-# training-dynamics-interp
+# Emergence and Causal Role of Representations During Training
 
 **Does a language model use a piece of information as soon as it can represent it?**
 
