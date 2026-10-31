@@ -113,7 +113,8 @@ def causal_rows(model, cfg, data, fit_items, eval_items, clean, corrupt, device,
     return rows
 
 
-def run(run_dir: str | Path, device: str = "cpu", every: int = 1, n_examples: int = 1200) -> pd.DataFrame:
+def run(run_dir: str | Path, device: str = "cpu", every: int = 1, n_examples: int = 1200,
+        n_random: int = 6, steps: list[int] | None = None) -> pd.DataFrame:
     run_dir = Path(run_dir)
     cfg = Config.from_dict(yaml.safe_load((run_dir / "config.yaml").read_text()))
     dev = pick_device(device)
@@ -122,11 +123,13 @@ def run(run_dir: str | Path, device: str = "cpu", every: int = 1, n_examples: in
     eval_ex = _examples(cfg, n_examples, 888)
     eval_items = encode_examples(tok, eval_ex)
     clean, corrupt = counterfactual_pairs(tok, eval_ex)
-    ckpts = list_checkpoints(run_dir)[::every]
+    ckpts = list_checkpoints(run_dir)
+    ckpts = [c for c in ckpts if c[0] in set(steps)] if steps else ckpts[::every]
     out = []
     for k, (step, path) in enumerate(ckpts):
         model, _, _ = load_checkpoint(path, dev)
-        for r in causal_rows(model, cfg, data, fit_items, eval_items, clean, corrupt, dev):
+        for r in causal_rows(model, cfg, data, fit_items, eval_items, clean, corrupt, dev,
+                            n_random=n_random):
             out.append({"step": step, **r})
         if k % 10 == 0:
             print(f"intervened on checkpoint {k + 1}/{len(ckpts)} (step {step})", flush=True)
@@ -140,8 +143,12 @@ def main() -> None:
     ap.add_argument("--run", required=True)
     ap.add_argument("--device", default="cpu")
     ap.add_argument("--every", type=int, default=1, help="use every k-th checkpoint")
+    ap.add_argument("--n-examples", type=int, default=1200,
+                    help="examples per set; use more for wider models so the erasure fit is stable")
+    ap.add_argument("--n-random", type=int, default=6, help="random controls per intervention")
+    ap.add_argument("--steps", type=int, nargs="*", help="only these checkpoint steps")
     args = ap.parse_args()
-    df = run(args.run, args.device, args.every)
+    df = run(args.run, args.device, args.every, args.n_examples, args.n_random, args.steps)
     print(f"wrote {args.run}/causal_results.csv ({len(df)} rows)")
 
 

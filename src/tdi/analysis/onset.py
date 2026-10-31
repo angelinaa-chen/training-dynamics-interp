@@ -73,9 +73,11 @@ def best_layer_curve(df: pd.DataFrame, value: str, feature: str) -> pd.DataFrame
     return d.groupby("step")[value].max().reset_index().sort_values("step")
 
 
-def run_curves(run_dir) -> dict[str, pd.DataFrame]:
+def run_curves(run_dir, decod_metric: str = "acc") -> dict[str, pd.DataFrame]:
     """Behavior, decodability and causal curves for one run, keyed by name. Each is a DataFrame
-    with columns step, value."""
+    with columns step, value. Decodability uses `decod_metric` (probe accuracy by default, whose
+    baseline is the untrained model at step 0; "selectivity" subtracts a control-task probe, which
+    is not informative when the control is as easy as the real task)."""
     from pathlib import Path
 
     run_dir = Path(run_dir)
@@ -87,7 +89,7 @@ def run_curves(run_dir) -> dict[str, pd.DataFrame]:
     if p.exists():
         d = pd.read_csv(p)
         for f in d.feature.unique():
-            out[f"decodability:{f}"] = best_layer_curve(d, "selectivity", f).rename(columns={"selectivity": "value"})
+            out[f"decodability:{f}"] = best_layer_curve(d, decod_metric, f).rename(columns={decod_metric: "value"})
     c = run_dir / "causal_results.csv"
     if c.exists():
         d = pd.read_csv(c)

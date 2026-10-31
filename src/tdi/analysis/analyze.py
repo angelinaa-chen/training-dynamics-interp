@@ -18,10 +18,11 @@ FEATURES = ["subj_number@subj", "subj_number@last", "attr_number@attr"]
 
 
 CAUSAL_MIN_EFFECT = 1.0  # nats of logit difference: smaller effects are treated as "not used"
+DECOD_MIN_GAIN = 0.1  # probe accuracy must rise by at least this much over the untrained model
 
 
-def lags_for_run(run_dir, **kw) -> pd.DataFrame:
-    curves = run_curves(run_dir)
+def lags_for_run(run_dir, decod_metric: str = "acc", **kw) -> pd.DataFrame:
+    curves = run_curves(run_dir, decod_metric)
     t_beh = onset(curves["behavior:agree_logit_diff"].step, curves["behavior:agree_logit_diff"].value, **kw)
     rows = []
     for f in FEATURES:
@@ -30,7 +31,7 @@ def lags_for_run(run_dir, **kw) -> pd.DataFrame:
             return float("nan") if c is None else onset(c.step, c.value, **kw, **extra)
 
         causal = {"min_change": CAUSAL_MIN_EFFECT}
-        t_dec = t(f"decodability:{f}")
+        t_dec = t(f"decodability:{f}", min_change=DECOD_MIN_GAIN)
         t_loc, t_glo = t(f"causal:leace_local:{f}", **causal), t(f"causal:leace_global:{f}", **causal)
         rows.append({
             "run": Path(run_dir).name, "feature": f, "t_beh": t_beh, "t_dec": t_dec,
@@ -54,15 +55,16 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--runs", nargs="+", required=True)
     ap.add_argument("--out", default="analysis_out")
+    ap.add_argument("--decod-metric", default="acc", choices=["acc", "selectivity"])
     ap.add_argument("--frac", type=float, default=0.5, help="onset threshold (fraction of total change)")
     args = ap.parse_args()
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    per_run = pd.concat([lags_for_run(r, frac=args.frac) for r in args.runs], ignore_index=True)
+    per_run = pd.concat([lags_for_run(r, args.decod_metric, frac=args.frac) for r in args.runs], ignore_index=True)
     per_run.to_csv(out / "lag_per_run.csv", index=False)
     summarize(per_run).to_csv(out / "lag_summary.csv", index=False)
     for r in args.runs:
-        plot_run(run_curves(r), FEATURES, out / f"curves_{Path(r).name}.png", title=Path(r).name)
+        plot_run(run_curves(r, args.decod_metric), FEATURES, out / f"curves_{Path(r).name}.png", title=Path(r).name)
     pd.set_option("display.width", 200)
     print(per_run.round(1).to_string(index=False))
 

@@ -155,12 +155,15 @@ def main() -> None:
     ap.add_argument("--seed", type=int)
     ap.add_argument("--max-steps", type=int)
     ap.add_argument("--device")
+    ap.add_argument("--out-dir", help="override eval.out_dir (e.g. a folder outside iCloud/Desktop)")
     args = ap.parse_args()
     cfg = load_config(args.config, seed=args.seed)
     if args.max_steps:
         cfg.train.max_steps = args.max_steps
     if args.device:
         cfg.train.device = args.device
+    if args.out_dir:
+        cfg.eval.out_dir = args.out_dir
     run(cfg)
 
 

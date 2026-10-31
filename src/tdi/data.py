@@ -45,10 +45,34 @@ def load_tokenizer(data_dir: str | Path) -> Tokenizer:
 
 # ---------------------------------------------------------------- corpora
 
-def _wikitext_lines(name: str) -> tuple[list[str], list[str]]:
-    from datasets import load_dataset  # imported lazily: needs network on first use
+# Pinned commit of the Salesforce/wikitext dataset repo, so every run (and teammate) reads
+# byte-identical files. Loading the repo by name with older `datasets` versions picks up every
+# parquet file in it (non-raw and WikiText-2 included), so the raw files are read directly.
+_WIKITEXT_COMMIT = "b08601e04326c79dfdd32d625aee71d232d685c3"
+_WIKITEXT_FILES = {  # config -> {split: number of parquet shards}
+    "wikitext-103-raw-v1": {"train": 2, "validation": 1},
+    "wikitext-2-raw-v1": {"train": 1, "validation": 1},
+}
+_WIKITEXT_ROWS = {  # published sizes, used to catch a wrong or partial download
+    "wikitext-103-raw-v1": {"train": 1_801_350, "validation": 3_760},
+    "wikitext-2-raw-v1": {"train": 36_718, "validation": 3_760},
+}
 
-    ds = load_dataset("wikitext", name)
+
+def _wikitext_lines(name: str) -> tuple[list[str], list[str]]:
+    from datasets import DownloadConfig, load_dataset  # imported lazily: needs network on first use
+
+    base = f"https://huggingface.co/datasets/Salesforce/wikitext/resolve/{_WIKITEXT_COMMIT}/{name}"
+    files = {
+        split: [f"{base}/{split}-{i:05d}-of-{n:05d}.parquet" for i in range(n)]
+        for split, n in _WIKITEXT_FILES[name].items()
+    }
+    # The corpus is large and the CDN sometimes stalls: retry and resume instead of failing.
+    ds = load_dataset("parquet", data_files=files,
+                      download_config=DownloadConfig(max_retries=20, resume_download=True))
+    for split, n in _WIKITEXT_ROWS[name].items():
+        if len(ds[split]) != n:
+            raise RuntimeError(f"{name} {split}: got {len(ds[split])} rows, expected {n}")
     return list(ds["train"]["text"]), list(ds["validation"]["text"])
 
 
